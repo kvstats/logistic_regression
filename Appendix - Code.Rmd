@@ -1,0 +1,419 @@
+---
+title: "Part III - Appendix"
+author: "Kristine Villaluna"
+date: "17/12/2021"
+output:
+  html_document: default
+  pdf_document: default
+fontsize: 12pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE, 
+  out.width = "100%",
+  fig.width = 10,
+  fig.height = 6.7, 
+  fig.retina = 3,
+  cache = FALSE)
+```
+
+# Load data
+
+```{r}
+##############################################
+## Load libraries and data from GitHub
+##############################################
+
+library(curl)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(kableExtra)
+library(ggplot2)
+library(RColorBrewer)
+library(gmodels)
+library(broom)
+library(arm)
+
+x <- read.csv(curl("https://raw.githubusercontent.com/kvstats/sta2101f_project/main/mmALL_073120_csv.csv"), na.strings=c(""," "))
+
+# Load data - subset to only protests in North America
+protest <- filter(x, region == "North America" & protest == 1) # 527 obs
+```
+
+
+# Clean data
+```{r }
+##############################################
+## Check for missing values 
+##############################################
+
+#summary(protest)
+
+sum(is.na(protest$participants))
+sum(is.na(protest$participants_category))
+sum(is.na(protest$stateresponse1))
+sum(is.na(protest$stateresponse2))
+sum(is.na(protest$stateresponse3))
+sum(is.na(protest$stateresponse4))
+sum(is.na(protest$protesterdemand1))
+sum(is.na(protest$protestviolence))
+```
+
+After loading in the data and looking at the summary, we see that there are no NA's for any of the numeric variables. Using the `is.na` function, we see that there are missing values for the variable, `participants_category`. This can be dealt with by imputing the category based on the participants variable. 
+
+The rest of the missing values are in the additional protester demand and state response variables (ex, `protestdemand2`, `protestdemand3`, etc.). The primary ones, `protesterdemand1` and `stateresponse1`, have no missing values. 
+
+Next, we can derive some variables that will be used in the analysis, namely, length of protest, state violence, overall violence (protester and state), and number of demands.
+```{r}
+#####################################################################################################################
+## Variable Derivations
+## - Need to derive length of protest, state violence, overall violence (protester and state), number of demands
+## - Need to clean participants and participants_category variables
+######################################################################################################################
+
+# Length of Protest
+protest <- protest %>% mutate(
+  start_date = as.Date(paste(startyear, startmonth, startday, sep = '/')),
+  end_date = as.Date(paste(endyear, endmonth, endday, sep = '/')),
+  length_days = as.numeric(end_date - start_date + 1)
+)
+
+# State Violence
+protest <- protest %>% mutate(
+  stateviolence = ifelse(stateresponse1 %in% c("beatings", "killings", "shootings") | 
+                            stateresponse2 %in% c("beatings", "killings", "shootings") | 
+                            stateresponse3 %in% c("beatings", "killings", "shootings") | 
+                            stateresponse4 %in% c("beatings", "killings", "shootings") |
+                            stateresponse5 %in% c("beatings", "killings", "shootings") | 
+                            stateresponse6 %in% c("beatings", "killings", "shootings") | 
+                            stateresponse7 %in% c("beatings", "killings", "shootings") , 1, 0)  
+)
+
+# Violence
+protest <- protest %>% mutate(
+  violence = ifelse(protesterviolence == 1 |
+                        stateviolence == 1, 1, 0)
+)
+
+
+# Number of Demands
+protest <- protest %>% mutate(
+  num_demands = ifelse(is.na(protesterdemand2), 1, 
+                       ifelse(is.na(protesterdemand3), 2,
+                              ifelse(is.na(protesterdemand4),3,4)
+                              )
+                       )
+)
+  
+# Participant Category
+
+protest$participants <-
+  gsub(protest$participants,
+       pattern = 's|\\+|.*-|,|>|<|\\s',
+       replacement = '')
+
+protest$participants <-
+  gsub(protest$participants,
+       pattern = '.*[[:alpha:]]',
+       replacement = '')
+
+protest$participants = as.numeric(protest$participants)
+protest$participants_category = ifelse(is.na(protest$participants_category), '',protest$participants_category)
+
+protest <- protest %>% mutate(
+    participants_category = ifelse(
+      participants_category != '',
+      participants_category,
+      ifelse(
+        participants != 0 & participants >= 50 &
+          participants <= 99,
+        '50-99',
+        ifelse(
+          participants >= 100 & participants <= 999,
+          '100-999',
+          ifelse(
+            participants >= 1000 & participants <= 1999,
+            '1000-1999',
+            ifelse(
+              participants >= 2000 & participants <= 4999,
+              '2000-4999',
+              ifelse(
+                participants >= 5000 & participants <= 10000,
+                '5000-10000',
+                ifelse(participants > 10000, '>10000', 'unknown')
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+
+```
+
+# Plots 
+Now that the data has been cleaned, we can generate some plots. 
+```{r}
+####################################################
+# Plots 
+###################################################
+
+# Protester Demands
+ggplot(protest, aes(num_demands)) +
+  geom_bar(fill="#00CCFF") + ggtitle("Number of Protester Demands")
+
+# Included in Main Paper
+#ggplot(protest, aes(protesterdemand1)) +
+#  geom_bar(fill="#00CCFF") + labs(x = 'Primary Protestor Demand', y = 'Frequency') + ggtitle("Primary Protester Demand") + coord_flip()
+
+ggplot(protest, aes(protesterdemand2)) +
+  geom_bar(fill="#00CCFF") + labs(x = 'Secondary Protestor Demand', y = 'Frequency') + ggtitle("Secondary Protester Demand") + coord_flip()
+
+```
+```{r}
+# State responses
+ggplot(protest, aes(stateresponse1)) +
+  geom_bar(fill = "#66CCFF") + labs(x = 'Primary State Response', y = 'Frequency') + ggtitle("Frequency of State Responses to Protests")
+
+# Violence
+ggplot(protest, aes(stateviolence)) +
+  geom_bar(fill = "#0066FF") + ggtitle("State Violence during Protests")
+
+ggplot(protest, aes(protesterviolence)) +
+  geom_bar(fill = "#0073C2FF") + ggtitle("Protester Violence during Protests")
+
+ggplot(protest, aes(violence)) +
+  geom_bar(fill = "#0073C2FF") + ggtitle("Violence during Protests")
+
+# Cross-tab of state and protest violence 
+table <- table(protest$stateviolence, protest$protesterviolence)
+table 
+
+comp_table <- table(protest$stateviolence, protest$protesterviolence)
+row.names(comp_table) <-
+  c('State Non-Violent', 'State Violent')
+kable(
+  comp_table,
+  caption = 'State Violence Compared to Protester Violence',
+  col.names = c("Protesters Non-Violent", "Protesters Violent")
+) %>% kable_styling('striped')
+```
+
+```{r}
+# Number of Participants - was included in main paper
+#ggplot(protest, aes(participants_category)) +
+#  geom_bar(fill = "#00CCFF") + ggtitle("Number of Participants") + labs(x = 'Number of Participants', y = 'Frequency')
+
+# Year of the Protest
+ggplot(protest, aes(year)) +
+  geom_bar(fill = "#0073C2FF") + ggtitle("Year that the Protest Occured")
+
+# Protest number
+ggplot(protest, aes(protestnumber)) +
+  geom_bar(fill = "#0073C2FF") + ggtitle("Number of Protest in the Year")
+
+# Length of protest
+ggplot(protest, aes(length_days)) +
+  geom_bar(fill = "#0073C2FF") + ggtitle("Length of Protest")
+
+# Months - Included in Main Paper
+#ggplot(protest, aes(startmonth)) +
+#  geom_bar(fill = "#00CCFF") + labs(x = 'Month Protest Started', y = 'Frequency') + ggtitle("Month Protest Started") + scale_x_discrete(limits=month.abb) 
+
+# Country - Included in Main Paper
+#ggplot(protest, aes(country)) +
+#  geom_bar(fill = "#00CCFF") + labs(x = 'Country', y = 'Frequency') + ggtitle("Country of Protest") 
+```
+
+# Modeling
+
+```{r}
+####################################################
+# Modeling
+###################################################
+
+# Keep variables needed for analysis and filter to entries with known participant amount
+model_df <-
+  protest %>% dplyr::select(c(
+    country,
+    year, 
+    protestnumber, 
+    startmonth, 
+    participants_category, 
+    protesterdemand1, 
+    length_days, 
+    violence, 
+    num_demands
+  )) %>% filter(participants_category != 'unknown') 
+
+# Code variables as factors 
+model_df[, c(
+             'violence',
+             'participants_category',
+             'protesterdemand1')] <-
+  lapply(model_df[, c(
+                      'violence',
+                      'participants_category',
+                      'protesterdemand1')], as.factor)
+
+model_df$participants_category <-
+  factor(
+    model_df$participants_category,
+    levels = c(
+      "50-99",
+      "100-999",
+      "1000-1999",
+      "2000-4999",
+      "5000-10000",
+      ">10000"
+    )
+  )
+
+
+
+
+```
+# Model 1
+```{r}
+# Logistic regression model with all variables
+log_model <- glm(violence ~ ., data = model_df, family = 'binomial')
+summary(log_model)
+
+# Calculate p-value for deviance test
+1-pchisq(463.19,504)
+
+#kable(tail(tidy(log_model),25),digits=3)%>%kable_styling('striped')
+```
+
+Looking at the model fitted with all of the values, we can see that some variables are not significant at the 0.05 level, namely, protestnumber and startmonth. We can potentially remove these two variables and continue with the model selection. 
+
+We can check this finding by using the drop1 function, and ANOVA.
+```{r}
+drop1(log_model, test="LRT")
+```
+
+```{r}
+(anova(log_model, test="LRT"))
+```
+Looking at the output of both the drop1 and ANOVA functions, we can see that we can remove the variable protestnumber. 
+
+```{r}
+# Residual Deviance
+# We saw from the output that the residual deviance was 463.19 on 504 degrees of freedom
+# To calculate the p-value for the deviance goodness of fit test, we calculate the probability to the right of the deviance value for the chi-squared distribution on 30 degrees of freedom
+
+pchisq(log_model$deviance, df=log_model$df.residual, lower.tail=FALSE)
+```
+Note that the residual deviance of this first model is 463.19 on 504 degrees of freedom. The null hypothesis of the residual goodness of fit test is that our model is correctly specified (i.e, is adequate for the data), and we do not have evidence to reject that hypothesis (p-value = 0.9). So, using the residual deviance goodness of fit test, we have strong evidence that our model fits adequately. Note that adding variables to the model will increase our deviance, let us try to do more model selection to see if we can remove some variables or add some interactions. 
+
+# Model 2
+```{r}
+# Model with protestnumber removed
+log_model2 <- glm(violence ~ country + year + startmonth + participants_category + protesterdemand1 + length_days + num_demands, data = model_df, family = 'binomial')
+summary(log_model2)
+
+drop1(log_model2, test="LRT")
+(anova(log_model2, test="LRT"))
+```
+Here we fit the model without protestnumber. After using the drop1 and anova function, we can see that we can drop startmonth, as expected. 
+
+# Model 3 
+```{r}
+# Model with startmonth removed
+log_model3 <- glm(violence ~ country + year + participants_category + protesterdemand1 + length_days + num_demands, data = model_df, family = 'binomial')
+summary(log_model3)
+
+drop1(log_model3, test="LRT")
+(anova(log_model3, test="LRT"))
+```
+
+Finally, we fit the model with startmonth removed. We now see that all the variables left in the model are significant using the LRT tests. We can try taking out one variable to see if we are at a good stopping point. 
+
+```{r}
+# Model with numdemands removed
+log_model4 <- glm(violence ~ country + year + participants_category + protesterdemand1 + length_days, data = model_df, family = 'binomial')
+summary(log_model4)
+
+drop1(log_model4, test="LRT")
+(anova(log_model4, test="LRT"))
+
+anova(log_model4, log_model3, test="LRT")
+```
+Looking at this output from the ANOVA using the LRT test, the model with num_demands is significant, so we will proceed to keep it in the model. To check that we have sufficiently selected the main effects model, we can use an automatic selection procedure to see if the variables we have chosen make sense. 
+
+```{r}
+# Check with Backwards Selection
+lmod2 <- step(log_model2) # remove startmonth
+lmod3 <- step(log_model3) # keep all 
+```
+Backwards selection can be tricky when dealing with categorical covariates with multiple levels. In this case, we must make sure to consider the variable as a whole, and should not remove one level but not the others. 
+
+```{r}
+# Residual Deviance
+# To calculate the p-value for the deviance goodness of fit test, we calculate the probability to the right of the deviance value for the chi-squared distribution on 30 degrees of freedom
+
+pchisq(log_model3$deviance, df=log_model3$df.residual, lower.tail=FALSE)
+```
+Using the residual deviance test for our selected model, namely, model 3 with covariates, num_demands, year, length_days, protesterdemand1, participants_category, and country, we get a p-value of 0.89, indicating this is a good fit. Next, we can try to add some interaction terms to the model. 
+
+# Model 5 - Interactions
+Now that we have the main effects chosen, we can consider adding interaction terms into the model. 
+
+```{r}
+log_model5 <- glm(violence ~ country * year + participants_category + protesterdemand1 + length_days + num_demands, data = model_df, family = 'binomial')
+summary(log_model5)
+
+drop1(log_model5, test="LRT")
+(anova(log_model5, test="LRT"))
+```
+To add all second-order interaction terms into the model would cause an issue due to not having enough degrees of freedom. 
+
+# Model Checking
+
+We can check our final model using the residual deviance goodness of fit test. 
+```{r}
+pchisq(log_model3$deviance, df=log_model3$df.residual, lower.tail=FALSE)
+```
+Again, the null hypothesis of the residual goodness of fit test is that our model is correctly specified (i.e, is adequate for the data), and we do not have evidence to reject that hypothesis (p-value = 0.9). So, using the residual deviance goodness of fit test, we have strong evidence that our model fits adequately. 
+
+Traditional residual plots are not helpful with logistic regression. Take for example the following residual plot:
+```{r}
+plot(log_model3)
+```
+We instead can look at binned residual plots.
+
+```{r}
+binnedplot(fitted(log_model3), 
+           residuals(log_model3, type = "response"), 
+           nclass = NULL, 
+           xlab = "Expected Values", 
+           ylab = "Average residual", 
+           main = "Binned residual plot", 
+           cex.pts = 0.8, 
+           col.pts = 1, 
+           col.int = "gray")
+```
+
+The grey lines represent +- 2 SE bands, which we would expect to contain about 95% of the observations. We say that a model is reasonable if the majority of the fitted values seem to fall within the SE bands. 
+
+The model looks reasonable, but there are more outliers among the residuals than we would expect from chance alone (alpha = .05): 21 binned residuals but 2 outliers = 0.09. It looks like the model does not do well when the fitted value is around 0.57.
+
+# Final Model 
+
+```{r}
+#summary(log_model3)
+
+# Final model output
+kable(tail(tidy(log_model3),25),digits=3)%>%kable_styling('striped')
+```
+
+
+
+
+
+
